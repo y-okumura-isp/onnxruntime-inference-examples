@@ -114,6 +114,10 @@ extends:
             logProjectEvents: true
             workingFolder: '$(Build.BinariesDirectory)\build'
             createLogFile: true
-            
-        - script: |
-            rd /s/q $(Build.BinariesDirectory)\onnxruntimebin
+
+        #Delete onnxruntime.dll which isn't compliant yet.
+        - task: DeleteFiles@1
+          displayName: 'Delete DLLs from $(Build.BinariesDirectory)\onnxruntimebin'
+          inputs:
+            SourceFolder: $(Build.BinariesDirectory)\onnxruntimebin
+            Contents: '*.dll'
