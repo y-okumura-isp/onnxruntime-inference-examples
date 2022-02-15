@@ -33,6 +33,10 @@ resources:
       type: git
       name: OneBranch.Pipelines/GovernedTemplates
       ref: refs/heads/main
+    - repository: vcpkg
+      type: github
+      name: microsoft/vcpkg
+      ref: refs/heads/master
 
 extends:
   template: v2/OneBranch.NonOfficial.CrossPlat.yml@templates 
@@ -61,10 +65,9 @@ extends:
           ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/master') }}:
             ob_symbolsPublishing_enabled: true
         steps:     
-        #TODO: use vswhere to locate this bat file
         - script: |
             @echo off
-            
+            dir $(Build.SourcesDirectory)
             set vswherepath="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
             for /f "usebackq delims=" %%i in (`%vswherepath% -latest -property installationPath`) do (
               set vslatest="%%i"
@@ -79,8 +82,10 @@ extends:
             @echo ##vso[task.setvariable variable=vslatest]%vslatest%
             @echo ##vso[task.setvariable variable=vsdevcmd]%vsdevcmd%
           displayName: 'locate vsdevcmd via vswhere'
+        #TODO: use the vsdevcmd variable
         - script: |
-              call "$(vsdevcmd)"
+              REM call "$(vsdevcmd)"
+              call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\Tools\vsdevcmd.bat"
               curl -L -o onnxruntime.zip https://github.com/microsoft/onnxruntime/releases/download/v1.9.0/onnxruntime-win-x64-1.9.0.zip
               7z x onnxruntime.zip
               move onnxruntime-win-x64-1.9.0 onnxruntimebin
