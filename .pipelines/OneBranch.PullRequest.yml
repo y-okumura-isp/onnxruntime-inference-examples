@@ -24,7 +24,6 @@ variables:
   REPOROOT: $(Build.SourcesDirectory)
   OUTPUTROOT: $(REPOROOT)\out
   NUGET_XMLDOC_MODE: none
-
   WindowsContainerImage: 'cdpxwin1809.azurecr.io/global/vse2019:latest'
 
 resources:
@@ -117,7 +116,7 @@ extends:
 
         #Delete onnxruntime.dll which isn't compliant yet.
         - task: DeleteFiles@1
-          displayName: 'Delete DLLs from $(Build.BinariesDirectory)\onnxruntimebin'
+          displayName: 'Delete DLLs from onnxruntimebin'
           inputs:
             SourceFolder: $(Build.BinariesDirectory)\onnxruntimebin
             Contents: '*.dll'
