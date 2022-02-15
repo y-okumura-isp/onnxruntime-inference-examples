@@ -37,6 +37,7 @@ resources:
       type: github
       name: microsoft/vcpkg
       ref: refs/heads/master
+      endpoint: microsoft
 
 extends:
   template: v2/OneBranch.NonOfficial.CrossPlat.yml@templates 
