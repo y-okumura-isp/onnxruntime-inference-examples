@@ -65,7 +65,8 @@ extends:
           ob_sdl_binskim_break: true 
           ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/master') }}:
             ob_symbolsPublishing_enabled: true
-        steps:     
+        steps:
+        - checkout: vcpkg
         - script: |
             @echo off
             dir $(Build.SourcesDirectory)
