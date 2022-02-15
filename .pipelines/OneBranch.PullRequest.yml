@@ -83,14 +83,33 @@ extends:
             @echo ##vso[task.setvariable variable=vslatest]%vslatest%
             @echo ##vso[task.setvariable variable=vsdevcmd]%vsdevcmd%
           displayName: 'locate vsdevcmd via vswhere'
+        - script: |
+            curl -L -o onnxruntime.zip https://github.com/microsoft/onnxruntime/releases/download/v1.9.0/onnxruntime-win-x64-1.9.0.zip
+            7z x onnxruntime.zip
+            move onnxruntime-win-x64-1.9.0 onnxruntimebin
+          workingDirectory: '$(Build.BinariesDirectory)'
+          displayName: 'Install python modules' 
         #TODO: use the vsdevcmd variable
         - script: |
               REM call "$(vsdevcmd)"
               call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\Tools\vsdevcmd.bat"
               call .\vcpkg\bootstrap-vcpkg.bat
-              curl -L -o onnxruntime.zip https://github.com/microsoft/onnxruntime/releases/download/v1.9.0/onnxruntime-win-x64-1.9.0.zip
-              7z x onnxruntime.zip
-              move onnxruntime-win-x64-1.9.0 onnxruntimebin
+              cd $(Build.BinariesDirectory)
               mkdir build
               cd build
               cmake $(REPOROOT)\c_cxx -A x64 -T host=x64 -DCMAKE_TOOLCHAIN_FILE=$(Build.SourcesDirectory)/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static "-DONNXRUNTIME_ROOTDIR=../onnxruntimebin"
+              
+        - task: VSBuild@1
+          displayName: 'Build'
+          inputs:
+            solution: '$(Build.BinariesDirectory)\build\onnxruntime_samples.sln'
+            platform: x64
+            configuration: Release
+            msbuildArchitecture: x64
+            maximumCpuCount: true
+            logProjectEvents: true
+            workingFolder: '$(Build.BinariesDirectory)\build'
+            createLogFile: true
+            
+        - script: |
+            rd /s/q $(Build.BinariesDirectory)\onnxruntimebin
