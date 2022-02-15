@@ -69,7 +69,6 @@ extends:
         - checkout: vcpkg
         - script: |
             @echo off
-            dir $(Build.SourcesDirectory)
             set vswherepath="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
             for /f "usebackq delims=" %%i in (`%vswherepath% -latest -property installationPath`) do (
               set vslatest="%%i"
@@ -88,9 +87,10 @@ extends:
         - script: |
               REM call "$(vsdevcmd)"
               call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\Tools\vsdevcmd.bat"
+              .\vcpkg\bootstrap-vcpkg.bat
               curl -L -o onnxruntime.zip https://github.com/microsoft/onnxruntime/releases/download/v1.9.0/onnxruntime-win-x64-1.9.0.zip
               7z x onnxruntime.zip
               move onnxruntime-win-x64-1.9.0 onnxruntimebin
               mkdir build
               cd build
-              cmake $(REPOROOT)\c_cxx -A x64 -T host=x64 -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static "-DONNXRUNTIME_ROOTDIR=../onnxruntimebin"
+              cmake $(REPOROOT)\c_cxx -A x64 -T host=x64 -DCMAKE_TOOLCHAIN_FILE=$(Build.SourcesDirectory)/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static "-DONNXRUNTIME_ROOTDIR=../onnxruntimebin"
