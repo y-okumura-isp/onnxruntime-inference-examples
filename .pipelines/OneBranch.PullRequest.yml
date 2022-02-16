@@ -55,6 +55,42 @@ extends:
         exclusionsFile: '$(REPOROOT)\ci_build\policheck_exclusions.xml'
 
     stages:
+    - stage: linux_stage
+      jobs:
+      - job: linux_job
+        pool:
+          type: linux
+
+        variables:
+          ob_outputDirectory: '$(Build.SourcesDirectory)/out' 
+
+        steps: 
+          - task: onebranch.pipeline.version@1
+            displayName: 'Setup BuildNumber'
+            inputs:
+              system: 'RevisionCounter'
+              major: '1'
+              minor: '0'
+              exclude_commit: true
+
+          - task: CmdLine@2
+            displayName: Download onnxruntime
+            workingDirectory: '$(Build.BinariesDirectory)'
+            inputs:
+              script: |
+                curl -O -L https://github.com/microsoft/onnxruntime/releases/download/v1.10.0/onnxruntime-linux-x64-1.10.0.tgz
+                mkdir onnxruntimebin
+                cd onnxruntimebin
+                tar --strip=1 -zxvf ../onnxruntime-linux-x64-1.10.0.tgz
+
+          - task: CmdLine@2
+            displayName: build
+            workingDirectory: '$(Build.BinariesDirectory)'
+            inputs:
+              script: |
+                cmake $(Build.SourcesDirectory)/c_cxx -DCMAKE_BUILD_TYPE=Release -DONNXRUNTIME_ROOTDIR=$(Build.BinariesDirectory)/onnxruntimebin
+                make -j$(nproc)
+
     - stage: Windows_Build
       jobs:
       - job: main
