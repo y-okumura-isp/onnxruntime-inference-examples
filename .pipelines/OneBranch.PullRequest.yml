@@ -55,7 +55,7 @@ extends:
         exclusionsFile: '$(REPOROOT)\ci_build\policheck_exclusions.xml'
 
     stages:
-    - stage: build
+    - stage: Windows_Build
       jobs:
       - job: main
         pool:
@@ -94,7 +94,7 @@ extends:
         - script: |
             REM call "$(vsdevcmd)"
             echo "$(vsdevcmd)"
-            where python.exe
+            call $(vsdevcmd)
             call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\Tools\vsdevcmd.bat"
             call .\vcpkg\bootstrap-vcpkg.bat
             cd $(Build.BinariesDirectory)
