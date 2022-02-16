@@ -92,10 +92,7 @@ extends:
           displayName: 'Install python modules' 
         #TODO: use the vsdevcmd variable
         - script: |
-            REM call "$(vsdevcmd)"
-            echo "$(vsdevcmd)"
             call $(vsdevcmd)
-            call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\Tools\vsdevcmd.bat"
             call .\vcpkg\bootstrap-vcpkg.bat
             cd $(Build.BinariesDirectory)
             mkdir build
