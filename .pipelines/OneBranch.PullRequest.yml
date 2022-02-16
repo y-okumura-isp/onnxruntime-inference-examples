@@ -73,23 +73,19 @@ extends:
               minor: '0'
               exclude_commit: true
 
-          - task: CmdLine@2
-            displayName: Download onnxruntime
-            workingDirectory: '$(Build.BinariesDirectory)'
-            inputs:
-              script: |
+          - script: |
                 curl -O -L https://github.com/microsoft/onnxruntime/releases/download/v1.10.0/onnxruntime-linux-x64-1.10.0.tgz
                 mkdir onnxruntimebin
                 cd onnxruntimebin
                 tar --strip=1 -zxvf ../onnxruntime-linux-x64-1.10.0.tgz
+            displayName: Download onnxruntime
+            workingDirectory: '$(Build.BinariesDirectory)'            
 
-          - task: CmdLine@2
-            displayName: build
-            workingDirectory: '$(Build.BinariesDirectory)'
-            inputs:
-              script: |
+          - script: |
                 cmake $(Build.SourcesDirectory)/c_cxx -DCMAKE_BUILD_TYPE=Release -DONNXRUNTIME_ROOTDIR=$(Build.BinariesDirectory)/onnxruntimebin
                 make -j$(nproc)
+            displayName: build
+            workingDirectory: '$(Build.BinariesDirectory)'
 
     - stage: Windows_Build
       jobs:
