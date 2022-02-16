@@ -126,9 +126,9 @@ extends:
             @echo ##vso[task.setvariable variable=vsdevcmd]%vsdevcmd%
           displayName: 'locate vsdevcmd via vswhere'
         - script: |
-            curl -L -o onnxruntime.zip https://github.com/microsoft/onnxruntime/releases/download/v1.9.0/onnxruntime-win-x64-1.9.0.zip
+            curl -L -o onnxruntime.zip https://github.com/microsoft/onnxruntime/releases/download/v1.10.0/onnxruntime-win-x64-1.10.0.zip
             7z x onnxruntime.zip
-            move onnxruntime-win-x64-1.9.0 onnxruntimebin
+            move onnxruntime-win-x64-1.10.0 onnxruntimebin
           workingDirectory: '$(Build.BinariesDirectory)'
           displayName: 'Install python modules' 
         #TODO: use the vsdevcmd variable
