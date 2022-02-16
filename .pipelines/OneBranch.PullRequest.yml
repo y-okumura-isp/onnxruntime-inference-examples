@@ -81,7 +81,7 @@ extends:
           - script: |
                 set -e -x
                 apt-get update
-                apt-get install -y cmake gcc g++
+                apt-get install -y cmake gcc g++ libpng-dev libjpeg-turbo8-dev
                 curl -O -L https://github.com/microsoft/onnxruntime/releases/download/v1.10.0/onnxruntime-linux-x64-1.10.0.tgz
                 mkdir onnxruntimebin
                 cd onnxruntimebin
