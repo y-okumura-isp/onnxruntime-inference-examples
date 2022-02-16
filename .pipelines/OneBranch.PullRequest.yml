@@ -79,6 +79,9 @@ extends:
               exclude_commit: true
 
           - script: |
+                set -e -x
+                apt-get update
+                apt-get install cmake gcc g++
                 curl -O -L https://github.com/microsoft/onnxruntime/releases/download/v1.10.0/onnxruntime-linux-x64-1.10.0.tgz
                 mkdir onnxruntimebin
                 cd onnxruntimebin
@@ -87,6 +90,7 @@ extends:
             workingDirectory: '$(Build.BinariesDirectory)'            
 
           - script: |
+                set -e -x
                 cmake $(Build.SourcesDirectory)/c_cxx -DCMAKE_BUILD_TYPE=Release -DONNXRUNTIME_ROOTDIR=$(Build.BinariesDirectory)/onnxruntimebin
                 make -j$(nproc)
             displayName: build
