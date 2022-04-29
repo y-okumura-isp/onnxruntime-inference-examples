@@ -2,6 +2,8 @@
 #include <png.h>
 #include <stdio.h>
 
+#include <cuda_runtime.h>
+
 #include "onnxruntime_cxx_api.h"
 
 #include <functional>
@@ -133,26 +135,31 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
 
   const int64_t input_shape[] = {1, 3, 720, 720};
   const size_t input_shape_len = sizeof(input_shape) / sizeof(input_shape[0]);
+  auto len = std::accumulate(input_shape, input_shape + input_shape_len, 1, std::multiplies<float>());
 
-  // ステップ1: GPU 転送は内部に任せる
-  // 最終: IO を GPU メモリのポインタとする
   Ort::IoBinding io_binding{session};
   auto memory_info = Ort::MemoryInfo(
-      "Cpu",
-      OrtDeviceAllocator,
+      "Cuda",
+      OrtArenaAllocator,
       0,
-      OrtMemTypeCPU);
+      OrtMemTypeDefault);
+  Ort::Allocator cuda_allocator(session, memory_info);
+  void * input_device = cuda_allocator.Alloc(len * sizeof(float)); // TODO: use smart pointer
+
+  cudaMemcpy(input_device, model_input,
+             sizeof(float) * model_input_ele_count,
+             cudaMemcpyHostToDevice);
+
   auto input_tensor = Ort::Value::CreateTensor<float>(
       memory_info,
-      model_input,
+      (float *) input_device,
       model_input_ele_count,
       input_shape,
       input_shape_len);
   io_binding.BindInput("inputImage", input_tensor);
 
   auto out_memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
-  auto outlen = std::accumulate(input_shape, input_shape + input_shape_len, 1, std::multiplies<float>());
-  std::vector<float> out_data(outlen);
+  std::vector<float> out_data(len);
   auto output_tensor = Ort::Value::CreateTensor<float>(
       out_memory_info,
       out_data.data(),
@@ -168,6 +175,8 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
   if (write_tensor_to_png_file(output_tensor, output_file_p) != 0) {
     ret = -1;
   }
+
+  cuda_allocator.Free(input_device);
   free(model_input);
   return ret;
 }
