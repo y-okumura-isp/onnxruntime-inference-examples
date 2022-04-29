@@ -1,22 +1,10 @@
-// #include "onnxruntime_cxx_api.h"
-
 #include <assert.h>
 #include <png.h>
 #include <stdio.h>
 
 #include "onnxruntime_c_api.h"
-#ifdef _WIN32
-#ifdef USE_DML
-#include "providers.h"
-#endif
-#include <objbase.h>
-#endif
 
-#ifdef _WIN32
-#define tcscmp wcscmp
-#else
 #define tcscmp strcmp
-#endif
 
 const OrtApi* g_ort = NULL;
 
@@ -143,35 +131,13 @@ static int write_tensor_to_png_file(OrtValue* tensor, const char* output_file) {
 
 static void usage() { printf("usage: <model_path> <input_file> <output_file> [cpu|cuda|dml] \n"); }
 
-#ifdef _WIN32
-static char* convert_string(const wchar_t* input) {
-  size_t src_len = wcslen(input) + 1;
-  if (src_len > INT_MAX) {
-    printf("size overflow\n");
-    abort();
-  }
-  const int len = WideCharToMultiByte(CP_ACP, 0, input, (int)src_len, NULL, 0, NULL, NULL);
-  assert(len > 0);
-  char* ret = (char*)malloc(len);
-  assert(ret != NULL);
-  const int r = WideCharToMultiByte(CP_ACP, 0, input, (int)src_len, ret, len, NULL, NULL);
-  assert(len == r);
-  return ret;
-}
-#endif
-
 int run_inference(OrtSession* session, const ORTCHAR_T* input_file, const ORTCHAR_T* output_file) {
   size_t input_height;
   size_t input_width;
   float* model_input;
   size_t model_input_ele_count;
-#ifdef _WIN32
-  const char* output_file_p = convert_string(output_file);
-  const char* input_file_p = convert_string(input_file);
-#else
   const char* output_file_p = output_file;
   const char* input_file_p = input_file;
-#endif
   if (read_png_file(input_file_p, &input_height, &input_width, &model_input, &model_input_ele_count) != 0) {
     return -1;
   }
@@ -210,10 +176,6 @@ int run_inference(OrtSession* session, const ORTCHAR_T* input_file, const ORTCHA
   g_ort->ReleaseValue(output_tensor);
   g_ort->ReleaseValue(input_tensor);
   free(model_input);
-#ifdef _WIN32
-  free(input_file_p);
-  free(output_file_p);
-#endif  // _WIN32
   return ret;
 }
 
@@ -244,17 +206,7 @@ int enable_cuda(OrtSessionOptions* session_options) {
   return 0;
 }
 
-#ifdef USE_DML
-void enable_dml(OrtSessionOptions* session_options) {
-  ORT_ABORT_ON_ERROR(OrtSessionOptionsAppendExecutionProvider_DML(session_options, 0));
-}
-#endif
-
-#ifdef _WIN32
-int wmain(int argc, wchar_t* argv[]) {
-#else
 int main(int argc, char* argv[]) {
-#endif
   if (argc < 4) {
     usage();
     return -1;
@@ -265,11 +217,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Failed to init ONNX Runtime engine.\n");
     return -1;
   }
-#ifdef _WIN32
-  // CoInitializeEx is only needed if Windows Image Component will be used in this program for image loading/saving.
-  HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-  if (!SUCCEEDED(hr)) return -1;
-#endif
+
   ORTCHAR_T* model_path = argv[1];
   ORTCHAR_T* input_file = argv[2];
   ORTCHAR_T* output_file = argv[3];
@@ -287,12 +235,8 @@ int main(int argc, char* argv[]) {
     if (tcscmp(execution_provider, ORT_TSTR("cpu")) == 0) {
       // Nothing; this is the default
     } else if (tcscmp(execution_provider, ORT_TSTR("dml")) == 0) {
-#ifdef USE_DML
-      enable_dml(session_options);
-#else
       puts("DirectML is not enabled in this build.");
       return -1;
-#endif
     } else {
       usage();
       puts("Invalid execution provider option.");
@@ -318,9 +262,6 @@ int main(int argc, char* argv[]) {
   if (ret != 0) {
     fprintf(stderr, "fail\n");
   }
-#ifdef _WIN32
-  CoUninitialize();
-#endif
   return ret;
 }
 
