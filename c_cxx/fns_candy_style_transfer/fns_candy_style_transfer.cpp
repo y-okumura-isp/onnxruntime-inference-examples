@@ -137,8 +137,11 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
   // ステップ1: GPU 転送は内部に任せる
   // 最終: IO を GPU メモリのポインタとする
   Ort::IoBinding io_binding{session};
-  auto memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
-  std::cout << "device_id: " << memory_info.GetDeviceId() << std::endl;
+  auto memory_info = Ort::MemoryInfo(
+      "Cpu",
+      OrtDeviceAllocator,
+      0,
+      OrtMemTypeCPU);
   auto input_tensor = Ort::Value::CreateTensor<float>(
       memory_info,
       model_input,
