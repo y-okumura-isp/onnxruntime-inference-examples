@@ -4,6 +4,11 @@
 
 #include "onnxruntime_cxx_api.h"
 
+#include <functional>
+#include <iostream>
+#include <numeric>
+#include <vector>
+
 #define tcscmp strcmp
 
 /**
@@ -115,6 +120,8 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
   size_t model_input_ele_count;
   const char* output_file_p = output_file.c_str();
   const char* input_file_p = input_file.c_str();
+
+  // load png data to model_input
   if (read_png_file(input_file_p, &input_height, &input_width, &model_input, &model_input_ele_count) != 0) {
     return -1;
   }
@@ -124,32 +131,37 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
     return -1;
   }
 
-  auto memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
   const int64_t input_shape[] = {1, 3, 720, 720};
   const size_t input_shape_len = sizeof(input_shape) / sizeof(input_shape[0]);
 
+  // ステップ1: GPU 転送は内部に任せる
+  // 最終: IO を GPU メモリのポインタとする
+  int device_id = 0;
+  Ort::IoBinding io_binding{session};
+  std::cout << "hello" << std::endl;
+  auto memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
+  std::cout << "device_id: " << memory_info.GetDeviceId() << std::endl;
   auto input_tensor = Ort::Value::CreateTensor<float>(
       memory_info,
       model_input,
       model_input_ele_count,
       input_shape,
       input_shape_len);
+  io_binding.BindInput("inputImage", input_tensor);
 
-  assert(input_tensor.IsTensor());
-  // can release memory_info here
+  auto out_memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
+  auto outlen = std::accumulate(input_shape, input_shape + input_shape_len, 1, std::multiplies<float>());
+  std::vector<float> out_data(outlen);
+  auto output_tensor = Ort::Value::CreateTensor<float>(
+      out_memory_info,
+      out_data.data(),
+      out_data.size(),
+      input_shape,
+      input_shape_len);
+  io_binding.BindOutput("outputImage", output_tensor);
 
-  std::vector<const char*> input_names{"inputImage"};
-  std::vector<const char*> output_names{"outputImage"};
-
-  auto run_options = Ort::RunOptions();
-  auto output_tensors = session.Run(run_options,
-                                    input_names.data(),
-                                    &input_tensor,
-                                    input_names.size(),
-                                    output_names.data(),
-                                    output_names.size());
-  auto & output_tensor = output_tensors[0];
-  assert(output_tensor.IsTensor());
+  session.Run(Ort::RunOptions(),
+              io_binding);
 
   int ret = 0;
   if (write_tensor_to_png_file(output_tensor, output_file_p) != 0) {
