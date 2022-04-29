@@ -2,22 +2,9 @@
 #include <png.h>
 #include <stdio.h>
 
-#include "onnxruntime_c_api.h"
+#include "onnxruntime_cxx_api.h"
 
 #define tcscmp strcmp
-
-const OrtApi* g_ort = NULL;
-
-#define ORT_ABORT_ON_ERROR(expr)                             \
-  do {                                                       \
-    OrtStatus* onnx_status = (expr);                         \
-    if (onnx_status != NULL) {                               \
-      const char* msg = g_ort->GetErrorMessage(onnx_status); \
-      fprintf(stderr, "%s\n", msg);                          \
-      g_ort->ReleaseStatus(onnx_status);                     \
-      abort();                                               \
-    }                                                        \
-  } while (0);
 
 /**
  * convert input from HWC format to CHW format
@@ -94,23 +81,13 @@ static int read_png_file(const char* input_file, size_t* height, size_t* width, 
 /**
  * \param tensor should be a float tensor in [N,C,H,W] format
  */
-static int write_tensor_to_png_file(OrtValue* tensor, const char* output_file) {
-  struct OrtTensorTypeAndShapeInfo* shape_info;
-  ORT_ABORT_ON_ERROR(g_ort->GetTensorTypeAndShape(tensor, &shape_info));
-  size_t dim_count;
-  ORT_ABORT_ON_ERROR(g_ort->GetDimensionsCount(shape_info, &dim_count));
-  if (dim_count != 4) {
-    printf("output tensor must have 4 dimensions");
-    return -1;
-  }
-  int64_t dims[4];
-  ORT_ABORT_ON_ERROR(g_ort->GetDimensions(shape_info, dims, sizeof(dims) / sizeof(dims[0])));
-  if (dims[0] != 1 || dims[1] != 3) {
-    printf("output tensor shape error");
-    return -1;
-  }
-  float* f;
-  ORT_ABORT_ON_ERROR(g_ort->GetTensorMutableData(tensor, (void**)&f));
+static int write_tensor_to_png_file(Ort::Value & tensor, const char* output_file) {
+  Ort::TensorTypeAndShapeInfo shape_info = tensor.GetTensorTypeAndShapeInfo();
+  auto dims = shape_info.GetShape();
+  assert(dims.size() == 4);
+  auto f = tensor.GetTensorMutableData<float>();
+
+  // write to png file
   png_bytep model_output_bytes;
   png_image image;
   memset(&image, 0, (sizeof image));
@@ -131,13 +108,13 @@ static int write_tensor_to_png_file(OrtValue* tensor, const char* output_file) {
 
 static void usage() { printf("usage: <model_path> <input_file> <output_file> [cpu|cuda|dml] \n"); }
 
-int run_inference(OrtSession* session, const ORTCHAR_T* input_file, const ORTCHAR_T* output_file) {
+int run_inference(Ort::Session & session, const std::string & input_file, const std::string & output_file) {
   size_t input_height;
   size_t input_width;
   float* model_input;
   size_t model_input_ele_count;
-  const char* output_file_p = output_file;
-  const char* input_file_p = input_file;
+  const char* output_file_p = output_file.c_str();
+  const char* input_file_p = input_file.c_str();
   if (read_png_file(input_file_p, &input_height, &input_width, &model_input, &model_input_ele_count) != 0) {
     return -1;
   }
@@ -146,63 +123,52 @@ int run_inference(OrtSession* session, const ORTCHAR_T* input_file, const ORTCHA
     free(model_input);
     return -1;
   }
-  OrtMemoryInfo* memory_info;
-  ORT_ABORT_ON_ERROR(g_ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory_info));
+
+  auto memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
   const int64_t input_shape[] = {1, 3, 720, 720};
   const size_t input_shape_len = sizeof(input_shape) / sizeof(input_shape[0]);
-  const size_t model_input_len = model_input_ele_count * sizeof(float);
 
-  OrtValue* input_tensor = NULL;
-  ORT_ABORT_ON_ERROR(g_ort->CreateTensorWithDataAsOrtValue(memory_info, model_input, model_input_len, input_shape,
-                                                           input_shape_len, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
-                                                           &input_tensor));
-  assert(input_tensor != NULL);
-  int is_tensor;
-  ORT_ABORT_ON_ERROR(g_ort->IsTensor(input_tensor, &is_tensor));
-  assert(is_tensor);
-  g_ort->ReleaseMemoryInfo(memory_info);
-  const char* input_names[] = {"inputImage"};
-  const char* output_names[] = {"outputImage"};
-  OrtValue* output_tensor = NULL;
-  ORT_ABORT_ON_ERROR(g_ort->Run(session, NULL, input_names, (const OrtValue* const*)&input_tensor, 1, output_names, 1,
-                                &output_tensor));
-  assert(output_tensor != NULL);
-  ORT_ABORT_ON_ERROR(g_ort->IsTensor(output_tensor, &is_tensor));
-  assert(is_tensor);
+  auto input_tensor = Ort::Value::CreateTensor<float>(
+      memory_info,
+      model_input,
+      model_input_ele_count,
+      input_shape,
+      input_shape_len);
+
+  assert(input_tensor.IsTensor());
+  // can release memory_info here
+
+  std::vector<const char*> input_names{"inputImage"};
+  std::vector<const char*> output_names{"outputImage"};
+
+  auto run_options = Ort::RunOptions();
+  auto output_tensors = session.Run(run_options,
+                                    input_names.data(),
+                                    &input_tensor,
+                                    input_names.size(),
+                                    output_names.data(),
+                                    output_names.size());
+  auto & output_tensor = output_tensors[0];
+  assert(output_tensor.IsTensor());
+
   int ret = 0;
   if (write_tensor_to_png_file(output_tensor, output_file_p) != 0) {
     ret = -1;
   }
-  g_ort->ReleaseValue(output_tensor);
-  g_ort->ReleaseValue(input_tensor);
   free(model_input);
   return ret;
 }
 
-void verify_input_output_count(OrtSession* session) {
-  size_t count;
-  ORT_ABORT_ON_ERROR(g_ort->SessionGetInputCount(session, &count));
-  assert(count == 1);
-  ORT_ABORT_ON_ERROR(g_ort->SessionGetOutputCount(session, &count));
-  assert(count == 1);
+void verify_input_output_count(const Ort::Session & session) {
+  assert(session.GetInputCount() == 1);
+  assert(session.GetOutputCount() == 1);
 }
 
-int enable_cuda(OrtSessionOptions* session_options) {
-  // OrtCUDAProviderOptions is a C struct. C programming language doesn't have constructors/destructors.
+int enable_cuda(Ort::SessionOptions & session_options) {
   OrtCUDAProviderOptions o;
-  // Here we use memset to initialize every field of the above data struct to zero.
-  memset(&o, 0, sizeof(o));
-  // But is zero a valid value for every variable? Not quite. It is not guaranteed. In the other words: does every enum
-  // type contain zero? The following line can be omitted because EXHAUSTIVE is mapped to zero in onnxruntime_c_api.h.
   o.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchExhaustive;
   o.gpu_mem_limit = SIZE_MAX;
-  OrtStatus* onnx_status = g_ort->SessionOptionsAppendExecutionProvider_CUDA(session_options, &o);
-  if (onnx_status != NULL) {
-    const char* msg = g_ort->GetErrorMessage(onnx_status);
-    fprintf(stderr, "%s\n", msg);
-    g_ort->ReleaseStatus(onnx_status);
-    return -1;
-  }
+  session_options.AppendExecutionProvider_CUDA(o);
   return 0;
 }
 
@@ -212,29 +178,25 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
-  g_ort = OrtGetApiBase()->GetApi(ORT_API_VERSION);
-  if (!g_ort) {
-    fprintf(stderr, "Failed to init ONNX Runtime engine.\n");
-    return -1;
-  }
-
-  ORTCHAR_T* model_path = argv[1];
-  ORTCHAR_T* input_file = argv[2];
-  ORTCHAR_T* output_file = argv[3];
+  std::string model_path{argv[1]};
+  std::string input_file{argv[2]};
+  std::string output_file{argv[3]};
   // By default it will try CUDA first. If CUDA is not available, it will run all the things on CPU.
   // But you can also explicitly set it to DML(directml) or CPU(which means cpu-only).
-  ORTCHAR_T* execution_provider = (argc >= 5) ? argv[4] : NULL;
-  OrtEnv* env;
-  ORT_ABORT_ON_ERROR(g_ort->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "test", &env));
-  assert(env != NULL);
-  int ret = 0;
-  OrtSessionOptions* session_options;
-  ORT_ABORT_ON_ERROR(g_ort->CreateSessionOptions(&session_options));
+  std::string execution_provider;
+  if (argc >= 5) {
+    execution_provider = argv[4];
+  }
 
-  if (execution_provider) {
-    if (tcscmp(execution_provider, ORT_TSTR("cpu")) == 0) {
+  Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "test");
+  Ort::SessionOptions session_options;
+
+  int ret = 0;
+
+  if (!execution_provider.empty()) {
+    if (execution_provider == "cpu") {
       // Nothing; this is the default
-    } else if (tcscmp(execution_provider, ORT_TSTR("dml")) == 0) {
+    } else if (execution_provider == "dml") {
       puts("DirectML is not enabled in this build.");
       return -1;
     } else {
@@ -252,16 +214,12 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  OrtSession* session;
-  ORT_ABORT_ON_ERROR(g_ort->CreateSession(env, model_path, session_options, &session));
+  Ort::Session session(env, model_path.c_str(), session_options);
   verify_input_output_count(session);
   ret = run_inference(session, input_file, output_file);
-  g_ort->ReleaseSessionOptions(session_options);
-  g_ort->ReleaseSession(session);
-  g_ort->ReleaseEnv(env);
   if (ret != 0) {
     fprintf(stderr, "fail\n");
   }
+
   return ret;
 }
-
