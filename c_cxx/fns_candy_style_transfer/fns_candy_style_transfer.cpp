@@ -86,13 +86,11 @@ static int read_png_file(const char* input_file, size_t* height, size_t* width, 
 }
 
 /**
- * \param tensor should be a float tensor in [N,C,H,W] format
+ * \param (C=3, H, W)-type T
  */
-static int write_tensor_to_png_file(Ort::Value & tensor, const char* output_file) {
-  Ort::TensorTypeAndShapeInfo shape_info = tensor.GetTensorTypeAndShapeInfo();
-  auto dims = shape_info.GetShape();
-  assert(dims.size() == 4);
-  auto f = tensor.GetTensorMutableData<float>();
+template<typename T>
+int write_tensor_to_png_file(const std::vector<T> & data, size_t height, size_t width, const char* output_file) {
+  auto f = data.data();
 
   // write to png file
   png_bytep model_output_bytes;
@@ -100,8 +98,8 @@ static int write_tensor_to_png_file(Ort::Value & tensor, const char* output_file
   memset(&image, 0, (sizeof image));
   image.version = PNG_IMAGE_VERSION;
   image.format = PNG_FORMAT_BGR;
-  image.height = (png_uint_32)dims[2];
-  image.width = (png_uint_32)dims[3];
+  image.height = (png_uint_32) height;
+  image.width = (png_uint_32) width;
   chw_to_hwc(f, image.height, image.width, &model_output_bytes);
   int ret = 0;
   if (png_image_write_to_file(&image, output_file, 0 /*convert_to_8bit*/, model_output_bytes, 0 /*row_stride*/,
@@ -138,18 +136,16 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
   auto len = std::accumulate(input_shape, input_shape + input_shape_len, 1, std::multiplies<float>());
 
   Ort::IoBinding io_binding{session};
+  int device_id = 0;
+
+  // Input binding
   auto memory_info = Ort::MemoryInfo(
       "Cuda",
       OrtArenaAllocator,
-      0,
+      device_id,
       OrtMemTypeDefault);
   Ort::Allocator cuda_allocator(session, memory_info);
   void * input_device = cuda_allocator.Alloc(len * sizeof(float)); // TODO: use smart pointer
-
-  cudaMemcpy(input_device, model_input,
-             sizeof(float) * model_input_ele_count,
-             cudaMemcpyHostToDevice);
-
   auto input_tensor = Ort::Value::CreateTensor<float>(
       memory_info,
       (float *) input_device,
@@ -158,24 +154,43 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
       input_shape_len);
   io_binding.BindInput("inputImage", input_tensor);
 
-  auto out_memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
-  std::vector<float> out_data(len);
+  // Output binding
+  auto out_memory_info = Ort::MemoryInfo(
+      "Cuda",
+      OrtArenaAllocator,
+      device_id,
+      OrtMemTypeDefault);
+  void * output_device = cuda_allocator.Alloc(len * sizeof(float));
+  auto output_host = std::vector<float>(len);
   auto output_tensor = Ort::Value::CreateTensor<float>(
       out_memory_info,
-      out_data.data(),
-      out_data.size(),
+      (float *) output_device,
+      len,
       input_shape,
       input_shape_len);
   io_binding.BindOutput("outputImage", output_tensor);
 
+  // transfer input data
+  cudaMemcpy(input_device, model_input,
+             sizeof(float) * model_input_ele_count,
+             cudaMemcpyHostToDevice);
+
   session.Run(Ort::RunOptions(),
               io_binding);
 
+  // transfer output
+  cudaMemcpy(output_host.data(), output_device,
+             sizeof(float) * model_input_ele_count,
+             cudaMemcpyDeviceToHost);
+
   int ret = 0;
-  if (write_tensor_to_png_file(output_tensor, output_file_p) != 0) {
+  if (write_tensor_to_png_file<float>(
+          output_host, input_shape[2], input_shape[3],
+          output_file_p) != 0) {
     ret = -1;
   }
 
+  cuda_allocator.Free(output_device);
   cuda_allocator.Free(input_device);
   free(model_input);
   return ret;
