@@ -4,14 +4,15 @@
 
 #include <cuda_runtime.h>
 
+
 #include "onnxruntime_cxx_api.h"
 
+#include <cstring>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <numeric>
 #include <vector>
-
-#define tcscmp strcmp
 
 /**
  * convert input from HWC format to CHW format
@@ -89,9 +90,7 @@ static int read_png_file(const char* input_file, size_t* height, size_t* width, 
  * \param (C=3, H, W)-type T
  */
 template<typename T>
-int write_tensor_to_png_file(const std::vector<T> & data, size_t height, size_t width, const char* output_file) {
-  auto f = data.data();
-
+int write_tensor_to_png_file(T* f, size_t height, size_t width, const char* output_file) {
   // write to png file
   png_bytep model_output_bytes;
   png_image image;
@@ -112,6 +111,32 @@ int write_tensor_to_png_file(const std::vector<T> & data, size_t height, size_t 
 }
 
 static void usage() { printf("usage: <model_path> <input_file> <output_file> [cpu|cuda|dml] \n"); }
+
+/// Deleter for cudaHostAlloc
+class CudaHostMemoryDeleter {
+ public:
+  explicit CudaHostMemoryDeleter() {}
+
+  void operator()(void *ptr) const
+  {
+    cudaFree(ptr);
+  }
+};
+
+class CudaDeviceMemoryDeleter {
+ public:
+  explicit CudaDeviceMemoryDeleter(Ort::Allocator* alloc)
+      : alloc_(alloc) {}
+
+  void operator()(void *ptr) const
+  {
+    alloc_->Free(ptr);
+  }
+
+ private:
+  Ort::Allocator* alloc_;
+};
+
 
 int run_inference(Ort::Session & session, const std::string & input_file, const std::string & output_file) {
   size_t input_height;
@@ -138,40 +163,49 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
   Ort::IoBinding io_binding{session};
   int device_id = 0;
 
-  // Input binding
   auto memory_info = Ort::MemoryInfo(
       "Cuda",
       OrtArenaAllocator,
       device_id,
       OrtMemTypeDefault);
   Ort::Allocator cuda_allocator(session, memory_info);
-  void * input_device = cuda_allocator.Alloc(len * sizeof(float)); // TODO: use smart pointer
+
+  // Input binding
+  float * _input_host;
+  cudaMallocHost((void**) &_input_host, len * sizeof(float));
+  auto input_host = std::unique_ptr<float, CudaHostMemoryDeleter>(
+      _input_host, CudaHostMemoryDeleter());
+  auto input_device = std::unique_ptr<float, CudaDeviceMemoryDeleter>(
+      (float *) cuda_allocator.Alloc(len * sizeof(float)),
+      CudaDeviceMemoryDeleter(&cuda_allocator));
   auto input_tensor = Ort::Value::CreateTensor<float>(
       memory_info,
-      (float *) input_device,
+      input_device.get(),
       model_input_ele_count,
       input_shape,
       input_shape_len);
   io_binding.BindInput("inputImage", input_tensor);
 
   // Output binding
-  auto out_memory_info = Ort::MemoryInfo(
-      "Cuda",
-      OrtArenaAllocator,
-      device_id,
-      OrtMemTypeDefault);
-  void * output_device = cuda_allocator.Alloc(len * sizeof(float));
-  auto output_host = std::vector<float>(len);
+  float * _output_host;
+  cudaMallocHost((void**) &_output_host, len * sizeof(float));
+  auto output_host = std::unique_ptr<float, CudaHostMemoryDeleter>(
+      _output_host, CudaHostMemoryDeleter());
+  auto output_device = std::unique_ptr<float, CudaDeviceMemoryDeleter>(
+      (float *) cuda_allocator.Alloc(len * sizeof(float)),
+      CudaDeviceMemoryDeleter(&cuda_allocator));
   auto output_tensor = Ort::Value::CreateTensor<float>(
-      out_memory_info,
-      (float *) output_device,
+      memory_info,
+      output_device.get(),
       len,
       input_shape,
       input_shape_len);
   io_binding.BindOutput("outputImage", output_tensor);
 
   // transfer input data
-  cudaMemcpy(input_device, model_input,
+  std::memcpy(input_host.get(), model_input, len * sizeof(float));
+  cudaMemcpy((void*) input_device.get(),
+             (void*) input_host.get(),
              sizeof(float) * model_input_ele_count,
              cudaMemcpyHostToDevice);
 
@@ -179,19 +213,18 @@ int run_inference(Ort::Session & session, const std::string & input_file, const 
               io_binding);
 
   // transfer output
-  cudaMemcpy(output_host.data(), output_device,
+  cudaMemcpy((void*) output_host.get(),
+             (void*) output_device.get(),
              sizeof(float) * model_input_ele_count,
              cudaMemcpyDeviceToHost);
 
   int ret = 0;
   if (write_tensor_to_png_file<float>(
-          output_host, input_shape[2], input_shape[3],
+          output_host.get(), input_shape[2], input_shape[3],
           output_file_p) != 0) {
     ret = -1;
   }
 
-  cuda_allocator.Free(output_device);
-  cuda_allocator.Free(input_device);
   free(model_input);
   return ret;
 }
